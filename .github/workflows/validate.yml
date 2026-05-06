@@ -18,9 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ----------------------------------------------------------------
-      # 1. Syntax check — PowerShell 5.1 (the inbox "powershell" binary)
-      # ----------------------------------------------------------------
+      # 1. Syntax check - PowerShell 5.1 (the inbox "powershell" binary)
       - name: Syntax check (PS 5.1)
         shell: powershell
         run: |
@@ -36,9 +34,7 @@ jobs:
           }
           Write-Host "Syntax OK"
 
-      # ----------------------------------------------------------------
-      # 2. PSScriptAnalyzer — Warning and Error severity
-      # ----------------------------------------------------------------
+      # 2. PSScriptAnalyzer - Warning and Error severity
       - name: PSScriptAnalyzer
         shell: powershell
         run: |
@@ -46,16 +42,14 @@ jobs:
           $results = Invoke-ScriptAnalyzer `
               -Path "$env:GITHUB_WORKSPACE\Install-GameRedists.ps1" `
               -Severity Warning,Error `
-              -ExcludeRule PSAvoidUsingWriteHost   # Write-Host is intentional for console feedback
+              -ExcludeRule PSAvoidUsingWriteHost
           if ($results) {
               $results | Format-Table RuleName, Severity, Line, Message -AutoSize
               exit 1
           }
           Write-Host "PSScriptAnalyzer: no issues found"
 
-      # ----------------------------------------------------------------
-      # 3. Unit tests (mocked — no actual installs)
-      # ----------------------------------------------------------------
+      # 3. Unit tests (mocked - no actual installs)
       - name: Unit tests
         shell: powershell
         run: |
@@ -63,18 +57,16 @@ jobs:
               -File "$env:GITHUB_WORKSPACE\tests\Invoke-Tests.ps1"
           exit $LASTEXITCODE
 
-      # ----------------------------------------------------------------
       # 4. Verify winget source is reachable on the runner
-      # ----------------------------------------------------------------
       - name: Verify winget source reachable
         shell: powershell
         run: |
-          # winget source update can hang — run with timeout
+          # winget source update can hang - run with timeout
           $proc = Start-Process -FilePath 'winget' `
-              -ArgumentList 'source update --accept-source-agreements' `
+              -ArgumentList 'source update' `
               -NoNewWindow -PassThru
           if (-not $proc.WaitForExit(60000)) {
-              Write-Warning "winget source update timed out — killing"
+              Write-Warning "winget source update timed out - killing"
               $proc.Kill()
           }
           $out = winget search 'Microsoft.VCRedist.2015+.x64' --source winget 2>&1 | Out-String
@@ -88,16 +80,14 @@ jobs:
           }
           Write-Host "WinGet source: OK"
 
-      # ----------------------------------------------------------------
       # 5. Validate dynamic package discovery returns IDs
-      # ----------------------------------------------------------------
       - name: Validate dynamic package discovery
         shell: powershell
         run: |
           $groups = @(
-              @{ Query = 'Microsoft.VCRedist';            Match = 'Microsoft\.VCRedist\.'        },
+              @{ Query = 'Microsoft.VCRedist';              Match = 'Microsoft\.VCRedist\.'         },
               @{ Query = 'Microsoft.DotNet.DesktopRuntime'; Match = 'Microsoft\.DotNet\.DesktopRuntime' },
-              @{ Query = 'Microsoft.DotNet.AspNetCore';   Match = 'Microsoft\.DotNet\.AspNetCore' }
+              @{ Query = 'Microsoft.DotNet.AspNetCore';     Match = 'Microsoft\.DotNet\.AspNetCore' }
           )
           $anyFailed = $false
           foreach ($g in $groups) {
@@ -111,9 +101,7 @@ jobs:
           }
           if ($anyFailed) { exit 1 }
 
-      # ----------------------------------------------------------------
       # 6. Validate fixed package IDs exist in winget
-      # ----------------------------------------------------------------
       - name: Validate fixed package IDs
         shell: powershell
         run: |
