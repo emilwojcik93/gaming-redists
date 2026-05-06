@@ -307,10 +307,13 @@ function Get-WinGetIds {
         # Match tokens that look like package IDs: Capital.Word[.Word...] with 1+ dots.
         # Use [regex]::Matches() so ALL matching tokens on each line are captured,
         # not just the first (display names appear before IDs on the same line).
-        $idPattern = [regex]'[A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9+][A-Za-z0-9+.]+)+'
+        # _ for IDs like Microsoft.DotNet.AspNetCore.2_2; first match per line only
+        # so tag columns (e.g. "Tag: Microsoft.VCRedist.2003.x86") are ignored.
+        $idPattern = [regex]'[A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9+_][A-Za-z0-9+_.]+)+'
 
         $ids = $raw | ForEach-Object {
-            $idPattern.Matches([string]$_) | ForEach-Object { $_.Value }
+            $m = $idPattern.Match([string]$_)
+            if ($m.Success) { $m.Value }
         } | Where-Object { $_ } | Select-Object -Unique
 
         $ids = $ids | Where-Object {
