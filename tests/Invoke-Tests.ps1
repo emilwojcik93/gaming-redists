@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Self-contained test runner for Install-GameRedists.ps1.
@@ -287,10 +287,10 @@ function Test-AssertWinGetSourceSuite {
 }
 
 # ---------------------------------------------------------------------------
-# Test suite 4: Get-WinGetIds filtering
+# Test suite 4: Get-WinGetId filtering
 # ---------------------------------------------------------------------------
 function Test-GetWinGetIdsSuite {
-    Write-Host "`n[Get-WinGetIds]"
+    Write-Host "`n[Get-WinGetId]"
     Clear-Mocks
 
     $mockOutput = @(
@@ -305,7 +305,7 @@ function Test-GetWinGetIdsSuite {
 
     function global:winget { $mockOutput }
 
-    $ids = @(Get-WinGetIds -Query 'Microsoft.VCRedist' `
+    $ids = @(Get-WinGetId -Query 'Microsoft.VCRedist' `
         -MatchPattern   @('^Microsoft\.VCRedist\.') `
         -ExcludePattern @('arm', 'Uninstaller', 'Developer'))
 
@@ -317,12 +317,12 @@ function Test-GetWinGetIdsSuite {
 
     # 4f: empty output
     function global:winget { @() }
-    $ids = @(Get-WinGetIds -Query 'nothing' -MatchPattern @('nothing'))
+    $ids = @(Get-WinGetId -Query 'nothing' -MatchPattern @('nothing'))
     Assert-True '4f: empty -> empty array'   ($ids.Count -eq 0)
 
     # 4g: malformed output
     function global:winget { 'this has no package IDs whatsoever' }
-    $ids = @(Get-WinGetIds -Query 'test' -MatchPattern @('^test\.'))
+    $ids = @(Get-WinGetId -Query 'test' -MatchPattern @('^test\.'))
     Assert-True '4g: malformed -> empty array' ($ids.Count -eq 0)
 
     Clear-Mocks
@@ -478,7 +478,7 @@ function Test-InvokeWinGetBatchSuite {
 }
 
 # ---------------------------------------------------------------------------
-# Test suite 9: Get-WinGetIds Count is never broken under StrictMode
+# Test suite 9: Get-WinGetId Count is never broken under StrictMode
 # ---------------------------------------------------------------------------
 function Test-StrictModeCountSuite {
     Write-Host "`n[StrictMode .Count safety]"
@@ -491,7 +491,7 @@ function Test-StrictModeCountSuite {
           'VC++ Redist 2015   Microsoft.VCRedist.2015+.x64   14.0   winget')
     }
 
-    $ids = @(Get-WinGetIds -Query 'Microsoft.VCRedist' `
+    $ids = @(Get-WinGetId -Query 'Microsoft.VCRedist' `
         -MatchPattern   @('^Microsoft\.VCRedist\.') `
         -ExcludePattern @('arm'))
 
@@ -505,7 +505,7 @@ function Test-StrictModeCountSuite {
           'VC A   Microsoft.VCRedist.2013.x64   12.0',
           'VC B   Microsoft.VCRedist.2013.x86   12.0')
     }
-    $ids2 = @(Get-WinGetIds -Query 'Microsoft.VCRedist' `
+    $ids2 = @(Get-WinGetId -Query 'Microsoft.VCRedist' `
         -MatchPattern @('^Microsoft\.VCRedist\.'))
     Assert-True '9c: multiple matches work' ($ids2.Count -ge 2)
 
@@ -552,3 +552,4 @@ if ($script:FAIL -gt 0) {
 Write-Host "=========================================`n"
 
 exit $(if ($script:FAIL -gt 0) { 1 } else { 0 })
+

@@ -11,6 +11,9 @@ jobs:
     name: PS 5.1 lint, tests, and package-ID check
     runs-on: windows-latest
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4

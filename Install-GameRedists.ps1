@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Silently installs all gaming redistributable packages via WinGet.
@@ -100,10 +100,10 @@ function Write-Log {
     }
 }
 
-function Stop-Log {
+function Write-LogEnd {
     param([int]$ExitCode)
     Write-Log "=== Completed with exit code $ExitCode at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
-    try { Stop-Transcript | Out-Null } catch {}
+    try { Stop-Transcript | Out-Null } catch { Write-Verbose "Stop-Transcript: $_" }
 }
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ function Assert-WinGetSource {
     if ($null -ne $updateProc) {
         if (-not $updateProc.WaitForExit(60000)) {
             Write-Log "winget source update timed out - killing process." 'WARN'
-            try { $updateProc.Kill() } catch {}
+            try { $updateProc.Kill() } catch { Write-Verbose "Kill failed: $_" }
         }
     }
 
@@ -290,9 +290,9 @@ function Invoke-SourceRecovery {
 }
 
 # ---------------------------------------------------------------------------
-# Package discovery (Get-WinGetIds)
+# Package discovery (Get-WinGetId)
 # ---------------------------------------------------------------------------
-function Get-WinGetIds {
+function Get-WinGetId {
     [OutputType([string[]])]
     param(
         [Parameter(Mandatory)][string]   $Query,
@@ -327,7 +327,7 @@ function Get-WinGetIds {
         # @() at call site boxes single items; return plain array (no unary comma needed)
         return @($ids | Where-Object { $null -ne $_ -and $_ -ne '' })
     } catch {
-        Write-Log "Get-WinGetIds failed for '$Query': $($_.Exception.Message)" 'WARN'
+        Write-Log "Get-WinGetId failed for '$Query': $($_.Exception.Message)" 'WARN'
         return @()
     }
 }
@@ -336,6 +336,7 @@ function Get-WinGetIds {
 # Install one package with retry (Invoke-WinGetInstall)
 # ---------------------------------------------------------------------------
 function Invoke-WinGetInstall {
+    [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
         [Parameter(Mandatory)][string] $Id,
@@ -435,14 +436,14 @@ function Main {
     # --- WinGet bootstrap ---
     Write-Progress -Activity 'Gaming Redists' -Status 'Bootstrapping WinGet...' -PercentComplete 0
     if (-not (Assert-WinGet)) {
-        Stop-Log -ExitCode 1
+        Write-LogEnd -ExitCode 1
         exit 1
     }
 
     # --- Source health ---
     Write-Progress -Activity 'Gaming Redists' -Status 'Checking WinGet source...' -PercentComplete 2
     if (-not (Assert-WinGetSource)) {
-        Stop-Log -ExitCode 1
+        Write-LogEnd -ExitCode 1
         exit 1
     }
 
@@ -451,17 +452,17 @@ function Main {
 
     Write-Log "Discovering VC++ packages..."
     # @() at call site ensures scalar returns are boxed into arrays (PS 5.1 strict-mode safe)
-    $vcIds = @(Get-WinGetIds -Query 'Microsoft.VCRedist' `
+    $vcIds = @(Get-WinGetId -Query 'Microsoft.VCRedist' `
         -MatchPattern   @('^Microsoft\.VCRedist\.') `
         -ExcludePattern @('arm', 'Uninstaller', 'Developer'))
 
     Write-Log "Discovering .NET Desktop Runtime packages..."
-    $dotnetIds = @(Get-WinGetIds -Query 'Microsoft.DotNet.DesktopRuntime' `
+    $dotnetIds = @(Get-WinGetId -Query 'Microsoft.DotNet.DesktopRuntime' `
         -MatchPattern   @('^Microsoft\.DotNet\.DesktopRuntime') `
         -ExcludePattern @('arm'))
 
     Write-Log "Discovering ASP.NET Core packages..."
-    $aspnetIds = @(Get-WinGetIds -Query 'Microsoft.DotNet.AspNetCore' `
+    $aspnetIds = @(Get-WinGetId -Query 'Microsoft.DotNet.AspNetCore' `
         -MatchPattern   @('^Microsoft\.DotNet\.AspNetCore') `
         -ExcludePattern @('arm'))
 
@@ -473,7 +474,7 @@ function Main {
 
     if ($totalCount -eq 0) {
         Write-Log "No packages discovered. Verify WinGet source is healthy." 'ERROR'
-        Stop-Log -ExitCode 1
+        Write-LogEnd -ExitCode 1
         exit 1
     }
 
@@ -515,8 +516,9 @@ function Main {
     }
 
     $exitCode = if ($totals.Failed -gt 0) { 2 } else { 0 }
-    Stop-Log -ExitCode $exitCode
+    Write-LogEnd -ExitCode $exitCode
     exit $exitCode
 }
 
 Main
+
