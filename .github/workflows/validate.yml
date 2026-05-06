@@ -1,0 +1,134 @@
+name: Validate
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  validate:
+    name: PS 5.1 lint, tests, and package-ID check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------
+      # 1. Syntax check — PowerShell 5.1 (the inbox "powershell" binary)
+      # ----------------------------------------------------------------
+      - name: Syntax check (PS 5.1)
+        shell: powershell
+        run: |
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              "$env:GITHUB_WORKSPACE\Install-GameRedists.ps1",
+              [ref]$null,
+              [ref]$errors
+          )
+          if ($errors) {
+              $errors | Format-List
+              exit 1
+          }
+          Write-Host "Syntax OK"
+
+      # ----------------------------------------------------------------
+      # 2. PSScriptAnalyzer — Warning and Error severity
+      # ----------------------------------------------------------------
+      - name: PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck -Confirm:$false
+          $results = Invoke-ScriptAnalyzer `
+              -Path "$env:GITHUB_WORKSPACE\Install-GameRedists.ps1" `
+              -Severity Warning,Error `
+              -ExcludeRule PSAvoidUsingWriteHost   # Write-Host is intentional for console feedback
+          if ($results) {
+              $results | Format-Table RuleName, Severity, Line, Message -AutoSize
+              exit 1
+          }
+          Write-Host "PSScriptAnalyzer: no issues found"
+
+      # ----------------------------------------------------------------
+      # 3. Unit tests (mocked — no actual installs)
+      # ----------------------------------------------------------------
+      - name: Unit tests
+        shell: powershell
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass `
+              -File "$env:GITHUB_WORKSPACE\tests\Invoke-Tests.ps1"
+          exit $LASTEXITCODE
+
+      # ----------------------------------------------------------------
+      # 4. Verify winget source is reachable on the runner
+      # ----------------------------------------------------------------
+      - name: Verify winget source reachable
+        shell: powershell
+        run: |
+          # winget source update can hang — run with timeout
+          $proc = Start-Process -FilePath 'winget' `
+              -ArgumentList 'source update --accept-source-agreements' `
+              -NoNewWindow -PassThru
+          if (-not $proc.WaitForExit(60000)) {
+              Write-Warning "winget source update timed out — killing"
+              $proc.Kill()
+          }
+          $out = winget search 'Microsoft.VCRedist.2015+.x64' --source winget 2>&1 | Out-String
+          if ($out -match 'Failed when searching source') {
+              Write-Error "winget source returned errors: $out"
+              exit 1
+          }
+          if ($out -notmatch 'Microsoft\.VCRedist') {
+              Write-Error "Probe search returned no expected results. Source may be unavailable."
+              exit 1
+          }
+          Write-Host "WinGet source: OK"
+
+      # ----------------------------------------------------------------
+      # 5. Validate dynamic package discovery returns IDs
+      # ----------------------------------------------------------------
+      - name: Validate dynamic package discovery
+        shell: powershell
+        run: |
+          $groups = @(
+              @{ Query = 'Microsoft.VCRedist';            Match = 'Microsoft\.VCRedist\.'        },
+              @{ Query = 'Microsoft.DotNet.DesktopRuntime'; Match = 'Microsoft\.DotNet\.DesktopRuntime' },
+              @{ Query = 'Microsoft.DotNet.AspNetCore';   Match = 'Microsoft\.DotNet\.AspNetCore' }
+          )
+          $anyFailed = $false
+          foreach ($g in $groups) {
+              $out = winget search $g.Query --source winget --accept-source-agreements 2>&1 | Out-String
+              if ($out -notmatch $g.Match) {
+                  Write-Error "No results for '$($g.Query)' matching '$($g.Match)'"
+                  $anyFailed = $true
+              } else {
+                  Write-Host "  OK: $($g.Query)"
+              }
+          }
+          if ($anyFailed) { exit 1 }
+
+      # ----------------------------------------------------------------
+      # 6. Validate fixed package IDs exist in winget
+      # ----------------------------------------------------------------
+      - name: Validate fixed package IDs
+        shell: powershell
+        run: |
+          $fixed = @(
+              'Microsoft.DirectX',
+              'Microsoft.XNARedist',
+              'M2Team.NanaZip',
+              'Microsoft.PowerShell'
+          )
+          $anyFailed = $false
+          foreach ($id in $fixed) {
+              $out = winget search --id $id --source winget --exact `
+                  --accept-source-agreements 2>&1 | Out-String
+              if ($out -notmatch [regex]::Escape($id)) {
+                  Write-Error "Package '$id' not found in winget"
+                  $anyFailed = $true
+              } else {
+                  Write-Host "  OK: $id"
+              }
+          }
+          if ($anyFailed) { exit 1 }
