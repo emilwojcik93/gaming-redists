@@ -43,7 +43,7 @@ $script:WINGET_UPTODATE = @(
     [int]-1978335153
 )
 
-# Fixed extras — always installed regardless of discovery
+# Fixed extras - always installed regardless of discovery
 $script:FIXED_PACKAGES = @(
     'Microsoft.DirectX',
     'Microsoft.XNARedist',
@@ -141,7 +141,7 @@ function Assert-WinGet {
         $errMsg = $_.Exception.Message
         Write-Log "Fast path failed: $errMsg" 'WARN'
 
-        # Tier 3: WindowsAppRuntime missing — extract version and install it
+        # Tier 3: WindowsAppRuntime missing - extract version and install it
         if ($errMsg -match 'Microsoft\.WindowsAppRuntime\.(\d+\.\d+)') {
             $runtimeVer = $Matches[1]
             Write-Log "Installing WindowsAppRuntime $runtimeVer..."
@@ -219,21 +219,21 @@ function Assert-WinGetSource {
         return Invoke-SourceRecovery
     }
 
-    # Step 2: timed source update (60 s hard timeout — source update can hang indefinitely)
+    # Step 2: timed source update (60 s hard timeout - source update can hang indefinitely)
     Write-Log "Updating WinGet sources (60 s timeout)..."
     $updateProc = Start-Process -FilePath 'winget' `
-        -ArgumentList "source update --accept-source-agreements" `
+        -ArgumentList 'source update' `
         -NoNewWindow -PassThru -ErrorAction SilentlyContinue
     if ($null -ne $updateProc) {
         if (-not $updateProc.WaitForExit(60000)) {
-            Write-Log "winget source update timed out — killing process." 'WARN'
+            Write-Log "winget source update timed out - killing process." 'WARN'
             try { $updateProc.Kill() } catch {}
         }
     }
 
-    # Step 3: probe search — detect "Failed when searching source"
+    # Step 3: probe search - detect "Failed when searching source"
     if (-not (Test-WinGetSourceProbe)) {
-        Write-Log "Probe search failed — '$($script:SOURCE_NAME)' source returns errors." 'WARN'
+        Write-Log "Probe search failed - '$($script:SOURCE_NAME)' source returns errors." 'WARN'
         return Invoke-SourceRecovery
     }
 
@@ -258,9 +258,9 @@ function Invoke-SourceRecovery {
     param()
 
     # Attempt 1: reset (restores default sources)
-    Write-Log "Attempting source recovery — winget source reset --force..."
+    Write-Log "Attempting source recovery - winget source reset --force..."
     try {
-        & winget source reset --force --accept-source-agreements 2>&1 | Out-Null
+        & winget source reset --force 2>&1 | Out-Null
         Start-Sleep -Seconds 3
         if (Test-WinGetSourceProbe) {
             Write-Log "Source recovered via reset."
@@ -304,23 +304,25 @@ function Get-WinGetIds {
         $raw = & winget search $Query --source $script:SOURCE_NAME `
             --accept-source-agreements 2>&1
 
+        # Match tokens that look like package IDs: Capital.Word[.Word...] with 1+ dots.
+        # Use [regex]::Matches() so ALL matching tokens on each line are captured,
+        # not just the first (display names appear before IDs on the same line).
+        $idPattern = [regex]'[A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9+][A-Za-z0-9+.]+)+'
+
         $ids = $raw | ForEach-Object {
-            # Package IDs in winget output follow the pattern Vendor.Product.Version
-            # They start after the display name column; match any token that looks like an ID
-            if ($_ -match '\b([A-Za-z0-9][\w.-]{4,})\b') {
-                $Matches[1]
-            }
+            $idPattern.Matches([string]$_) | ForEach-Object { $_.Value }
         } | Where-Object { $_ } | Select-Object -Unique
 
         $ids = $ids | Where-Object {
             $id = $_
-            $include = $MatchPattern  | Where-Object { $id -match $_ }
-            $exclude = $ExcludePattern | Where-Object { $id -match $_ }
-            ($null -ne $include -and $include.Count -gt 0) -and
-            ($null -eq $exclude -or $exclude.Count -eq 0)
+            # @() forces array so .Count is always available under Set-StrictMode
+            $include = @($MatchPattern  | Where-Object { $id -match $_ })
+            $exclude = @($ExcludePattern | Where-Object { $id -match $_ })
+            ($include.Count -gt 0) -and ($exclude.Count -eq 0)
         }
 
-        return @($ids)
+        # @() at call site boxes single items; return plain array (no unary comma needed)
+        return @($ids | Where-Object { $null -ne $_ -and $_ -ne '' })
     } catch {
         Write-Log "Get-WinGetIds failed for '$Query': $($_.Exception.Message)" 'WARN'
         return @()
@@ -356,9 +358,9 @@ function Invoke-WinGetInstall {
             return 'WhatIf'
         }
 
-        # Mid-run source error — trigger recovery once then retry
+        # Mid-run source error - trigger recovery once then retry
         if ($output -match 'Failed when searching source') {
-            Write-Log "  Source error during install of '$Id' — attempting recovery..." 'WARN'
+            Write-Log "  Source error during install of '$Id' - attempting recovery..." 'WARN'
             $recovered = Invoke-SourceRecovery
             if (-not $recovered) { return 'Failed' }
             continue
@@ -367,9 +369,9 @@ function Invoke-WinGetInstall {
         if ($exitCode -eq 0)                          { return 'Installed' }
         if ($script:WINGET_UPTODATE -contains $exitCode) { return 'AlreadyUpToDate' }
 
-        # Real failure — retry with delay
+        # Real failure - retry with delay
         if ($attempt -lt $MaxRetries) {
-            Write-Log "  '$Id' failed (exit $exitCode) — retry $attempt/$MaxRetries in ${RetryDelaySec}s..." 'WARN'
+            Write-Log "  '$Id' failed (exit $exitCode) - retry $attempt/$MaxRetries in ${RetryDelaySec}s..." 'WARN'
             Start-Sleep -Seconds $RetryDelaySec
         }
     }
@@ -396,7 +398,7 @@ function Invoke-WinGetBatch {
     foreach ($id in $Ids) {
         $pct = [int](($i / $TotalCount) * 100)
         Write-Progress -Activity 'Gaming Redists' `
-            -Status "$GroupName  —  $id" `
+            -Status "$GroupName  -  $id" `
             -PercentComplete $pct `
             -CurrentOperation "Package $i of $TotalCount"
 
@@ -445,22 +447,23 @@ function Main {
     Write-Progress -Activity 'Gaming Redists' -Status 'Discovering packages...' -PercentComplete 5
 
     Write-Log "Discovering VC++ packages..."
-    $vcIds = Get-WinGetIds -Query 'Microsoft.VCRedist' `
+    # @() at call site ensures scalar returns are boxed into arrays (PS 5.1 strict-mode safe)
+    $vcIds = @(Get-WinGetIds -Query 'Microsoft.VCRedist' `
         -MatchPattern   @('^Microsoft\.VCRedist\.') `
-        -ExcludePattern @('arm', 'Uninstaller', 'Developer')
+        -ExcludePattern @('arm', 'Uninstaller', 'Developer'))
 
     Write-Log "Discovering .NET Desktop Runtime packages..."
-    $dotnetIds = Get-WinGetIds -Query 'Microsoft.DotNet.DesktopRuntime' `
+    $dotnetIds = @(Get-WinGetIds -Query 'Microsoft.DotNet.DesktopRuntime' `
         -MatchPattern   @('^Microsoft\.DotNet\.DesktopRuntime') `
-        -ExcludePattern @('arm')
+        -ExcludePattern @('arm'))
 
     Write-Log "Discovering ASP.NET Core packages..."
-    $aspnetIds = Get-WinGetIds -Query 'Microsoft.DotNet.AspNetCore' `
+    $aspnetIds = @(Get-WinGetIds -Query 'Microsoft.DotNet.AspNetCore' `
         -MatchPattern   @('^Microsoft\.DotNet\.AspNetCore') `
-        -ExcludePattern @('arm')
+        -ExcludePattern @('arm'))
 
-    $allIds     = $vcIds + $dotnetIds + $aspnetIds + $script:FIXED_PACKAGES
-    $totalCount = $allIds.Count
+    $allIds     = @($vcIds) + @($dotnetIds) + @($aspnetIds) + $script:FIXED_PACKAGES
+    $totalCount = @($allIds).Count
 
     Write-Log ("Found {0} VC++, {1} .NET Runtime, {2} ASP.NET, {3} extras = {4} total" -f
         $vcIds.Count, $dotnetIds.Count, $aspnetIds.Count, $script:FIXED_PACKAGES.Count, $totalCount)
@@ -481,17 +484,17 @@ function Main {
         @{ Name = 'ASP.NET Core';         Ids = $aspnetIds         },
         @{ Name = 'Extras';               Ids = $script:FIXED_PACKAGES }
     )) {
-        if ($group.Ids.Count -eq 0) { continue }
+        if (@($group.Ids).Count -eq 0) { continue }
         Write-Log "--- $($group.Name) ---"
 
-        $r = Invoke-WinGetBatch -GroupName $group.Name -Ids $group.Ids `
+        $r = Invoke-WinGetBatch -GroupName $group.Name -Ids @($group.Ids) `
             -StartIndex $idx -TotalCount $totalCount
 
-        $totals.Installed      += $r.Installed
+        $totals.Installed       += $r.Installed
         $totals.AlreadyUpToDate += $r.AlreadyUpToDate
-        $totals.Failed         += $r.Failed
-        $totals.FailedIds      += $r.FailedIds
-        $idx += $group.Ids.Count
+        $totals.Failed          += $r.Failed
+        $totals.FailedIds       += @($r.FailedIds)
+        $idx += @($group.Ids).Count
     }
 
     Write-Progress -Activity 'Gaming Redists' -Completed
